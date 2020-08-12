@@ -10,8 +10,11 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+typedef void(^ScanResultBlock)(NSString *scanResult);
+
 @interface ScanViewController : UIViewController
 @property (nonatomic, assign)     BOOL qrCode;
+@property (nonatomic, copy)       ScanResultBlock resultBlock;
 @end
 
 NS_ASSUME_NONNULL_END

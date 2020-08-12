@@ -144,6 +144,7 @@
 - (void)clickCurrentCode:(UIButton *)btn{
     ScanBarInfo *barInfo = _layerArr[btn.tag];
     NSLog(@"%@",barInfo.codeString);
+    [self processWithResult:barInfo.codeString];
 }
 //去相册
 - (void)photosAction{
@@ -180,7 +181,11 @@
     if (metadataObjects != nil && metadataObjects.count > 0) {
         [self removeTimer];
         UIView *maskView = [self getMaskView];
+        maskView.alpha = 0;
         [self.view addSubview:maskView];
+        [UIView animateWithDuration:0.6 animations:^{
+            maskView.alpha = 1;
+        }];
         
         ScanBarInfo *barInfo = [ScanBarInfo new];
         barInfo.codeView = maskView;
@@ -202,6 +207,13 @@
         }];
         [_session stopRunning];
         _backBtn.hidden = YES;
+        if(metadataObjects.count == 1){
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                ScanBarInfo *barInfo = self->_layerArr[1];
+                NSLog(@"%@",barInfo.codeString);
+                [self processWithResult:barInfo.codeString];
+            });
+        }
     } else {
         NSLog(@"暂未识别出扫描的二维码");
     }
@@ -217,23 +229,35 @@
     // 获取识别结果
     NSArray *features = [detector featuresInImage:[CIImage imageWithCGImage:image.CGImage]];
     if (features.count == 0) {
+        
         [self dismissViewControllerAnimated:YES completion:^{
-            
+            [self processWithResult:@""];
         }];
         return;
     } else {
-        for (int index = 0; index < [features count]; index ++) {
-            CIQRCodeFeature *feature = [features objectAtIndex:index];
-            NSString *resultStr = feature.messageString;
-            NSLog(@"相册中读取二维码数据信息 - - %@", resultStr);
-        }
+//        for (int index = 0; index < [features count]; index ++) {
+//            CIQRCodeFeature *feature = [features objectAtIndex:index];
+//            NSString *resultStr = feature.messageString;
+//            NSLog(@"相册中读取二维码数据信息 - - %@", resultStr);
+//        }
+        CIQRCodeFeature *feature = features.firstObject;
+        NSString *resultStr = feature.messageString;
+    
         [self dismissViewControllerAnimated:YES completion:^{
-            
+            [self processWithResult:resultStr];
         }];
     }
 }
 
 #pragma mark - private
+- (void)processWithResult:(NSString *)resultStr{
+    if (self.resultBlock) {
+        self.resultBlock(resultStr);
+    }
+    [self dismissViewControllerAnimated:YES completion:^{
+        
+    }];
+}
 - (UIButton *)getPhotosButton{
     UIButton *photosBtn = [UIButton buttonWithType:UIButtonTypeCustom];
     photosBtn.frame = CGRectMake((self.view.bounds.size.width - 44)/2, self.view.bounds.size.height - 44 - 34 - 40, 44, 44);
@@ -249,9 +273,9 @@
     tipsLabel.font  = [UIFont boldSystemFontOfSize:16];
     tipsLabel.textAlignment = NSTextAlignmentCenter;
     tipsLabel.textColor = [UIColor colorWithRed:1 green:1 blue:1 alpha:0.5];
-    tipsLabel.backgroundColor = [UIColor colorWithRed:1 green:0 blue:0 alpha:0.2];
+    tipsLabel.backgroundColor = [UIColor colorWithRed:54/255.0 green:85/255.0 blue:230/255.0 alpha:0.2];
     tipsLabel.center = self.view.center;
-    tipsLabel.layer.borderColor = [UIColor colorWithRed:1 green:0 blue:0 alpha:0.2].CGColor;
+    tipsLabel.layer.borderColor = [UIColor colorWithRed:54/255.0 green:85/255.0 blue:230/255.0 alpha:0.2].CGColor;
     tipsLabel.layer.borderWidth = 3;
     return tipsLabel;
 }
@@ -291,7 +315,7 @@
 }
 - (UIView *)getMaskView{
     UIView *maskView = [[UIView alloc] initWithFrame:self.view.bounds];
-    maskView.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0.4];
+    maskView.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0.6];
     
     UIButton *cancel = [UIButton buttonWithType:UIButtonTypeCustom];
     cancel.frame = CGRectMake(15, 44, 50, 44);
@@ -325,6 +349,10 @@
 }
 #pragma mark - - - 执行定时器方法
 - (void)beginRefreshUI {
+    //防止还没开始执行定时器就扫描到码，导致扫描动画一直进行
+    if (!_session.isRunning) {
+        [self removeTimer];
+    }
     __block CGRect frame = _scanningline.frame;
     static BOOL flag = YES;
     
@@ -365,5 +393,10 @@
         _scanningline.image = image;
     }
     return _scanningline;
+}
+
+- (void)dealloc
+{
+    NSLog(@"释放了——————————————————————————————————————————-");
 }
 @end
