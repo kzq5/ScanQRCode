@@ -24,6 +24,7 @@
     AVCaptureMetadataOutput *_metadataOutput;
     NSMutableArray <ScanBarInfo*> * _layerArr;
     UIButton *_backBtn;
+    BOOL hasEntered;//首次进入，addTimer那不执行startsession操作，不然容易和初始化的start重复导致多次start
 }
 @property (nonatomic, strong) AVCaptureSession *session;
 @property (nonatomic, strong) AVCaptureVideoDataOutput *videoDataOutput;
@@ -73,6 +74,9 @@
 #pragma mark - action
 //关闭扫描页面
 - (void)close{
+    if (_session.running) {
+        [_session stopRunning];
+    }
     [self dismissViewControllerAnimated:YES completion:nil];
 }
 //取消扫码结果
@@ -85,7 +89,6 @@
     }];
     [_layerArr removeAllObjects];
     if (!_session.running) {
-        [_session startRunning];
         [self addTimer];
     }
     _backBtn.hidden = NO;
@@ -180,7 +183,6 @@
             barInfo.codeString = code.stringValue;
             [_layerArr addObject:barInfo];
         }];
-        [_session stopRunning];
         _backBtn.hidden = YES;
         if(metadataObjects.count == 1){
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -337,6 +339,7 @@
     UIImagePickerController *imagePicker = [[UIImagePickerController alloc] init];
     imagePicker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
     imagePicker.delegate = self;
+    imagePicker.modalPresentationStyle = UIModalPresentationFullScreen;//全屏模态选择相册，不然扫码会继续扫
     [self presentViewController:imagePicker animated:YES completion:nil];
 }
 - (void)processWithResult:(NSString *)resultStr{
@@ -437,6 +440,10 @@
 }
 #pragma mark - - - 添加定时器
 - (void)addTimer {
+    if (_session&&!_session.isRunning&&hasEntered) {
+        [_session startRunning];
+    }
+    hasEntered = YES;
     CGFloat scanninglineX = 0;
     CGFloat scanninglineY = 0;
     CGFloat scanninglineW = 0;
@@ -457,6 +464,9 @@
     self.timer = nil;
     [_scanningline removeFromSuperview];
     _scanningline = nil;
+    if (_session.isRunning) {
+        [_session stopRunning];
+    }
 }
 #pragma mark - - - 执行定时器方法
 - (void)beginRefreshUI {
