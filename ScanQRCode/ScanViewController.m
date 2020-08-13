@@ -9,7 +9,8 @@
 #import "ScanViewController.h"
 #import <AVFoundation/AVFoundation.h>
 #import "ScanBarInfo.h"
-
+#import <Photos/Photos.h>
+#import<AudioToolbox/AudioToolbox.h>
 /** 扫描内容的 W 值 */
 #define scanBorderW 0.9 * self.view.frame.size.width
 /** 扫描内容的 x 值 */
@@ -46,79 +47,28 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     // Do any additional setup after loading the view.
+    self.view.backgroundColor = [UIColor blackColor];
     
+    [self initData];
+    [self initUI];
+    
+    [self startScanQRCodeViewControllerWithResult:^(NSString * _Nonnull result) {
+        [self scanSession];
+    }];
+}
+- (void)initData{
     self.animationTimeInterval = 0.02;
     _barcodes = [NSMutableDictionary new];
     _layerArr = [NSMutableArray new];
-    // 1、获取摄像设备
-    AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
-    
-    // 2、创建摄像设备输入流
-    AVCaptureDeviceInput *deviceInput = [AVCaptureDeviceInput deviceInputWithDevice:device error:nil];
-    
-    // 3、创建元数据输出流
-    _metadataOutput = [[AVCaptureMetadataOutput alloc] init];
-    [_metadataOutput setMetadataObjectsDelegate:self queue:dispatch_get_main_queue()];
-    
-    // 设置扫描范围（每一个取值0～1，以屏幕右上角为坐标原点）
-    // 注：微信二维码的扫描范围是整个屏幕，这里并没有做处理（可不用设置）;
-    // 如需限制扫描框范围，打开下一句注释代码并进行相应调整
-//    metadataOutput.rectOfInterest = CGRectMake(0.05, 0.2, 0.7, 0.6);
-    
-    // 4、创建会话对象
-    _session = [[AVCaptureSession alloc] init];
-    // 并设置会话采集率
-    _session.sessionPreset = AVCaptureSessionPreset1920x1080;
-    
-    // 5、添加元数据输出流到会话对象
-    [_session addOutput:_metadataOutput];
-
-   // 创建摄像数据输出流并将其添加到会话对象上,  --> 用于识别光线强弱
-    self.videoDataOutput = [[AVCaptureVideoDataOutput alloc] init];
-    [_videoDataOutput setSampleBufferDelegate:self queue:dispatch_get_main_queue()];
-    [_session addOutput:_videoDataOutput];
-
-    // 6、添加摄像设备输入流到会话对象
-    [_session addInput:deviceInput];
-
- // 7、设置数据输出类型(如下设置为条形码和二维码兼容)，需要将数据输出添加到会话后，才能指定元数据类型，否则会报错
-    if (self.qrCode) {
-        _metadataOutput.metadataObjectTypes = @[AVMetadataObjectTypeQRCode,AVMetadataObjectTypeEAN13Code,  AVMetadataObjectTypeEAN8Code, AVMetadataObjectTypeCode128Code];
-    }else{
-        _metadataOutput.metadataObjectTypes = @[AVMetadataObjectTypeQRCode,AVMetadataObjectTypeEAN13Code,  AVMetadataObjectTypeEAN8Code, AVMetadataObjectTypeCode128Code];
-    }
-    
-    // 8、实例化预览图层, 用于显示会话对象
-    _videoPreviewLayer = [AVCaptureVideoPreviewLayer layerWithSession:_session];
-    // 保持纵横比；填充层边界
-    _videoPreviewLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
-    _videoPreviewLayer.frame = self.view.bounds;
-    [self.view.layer insertSublayer:_videoPreviewLayer atIndex:0];
-    
-    // 9、启动会话
-    [_session startRunning];
-    
-//    UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
-//    btn.frame = CGRectMake(0, self.view.bounds.size.height-100, self.view.bounds.size.width, 50);
-//    btn.backgroundColor = [UIColor redColor];
-//    [btn setContentHorizontalAlignment:UIControlContentHorizontalAlignmentCenter];
-//    [btn addTarget:self action:@selector(clicked:) forControlEvents:UIControlEventTouchUpInside];
-//    [self.view addSubview:btn];
-//    if (self.qrCode) {
-//        [btn setTitle:@"二维码" forState:UIControlStateNormal];
-//    }else{
-//        [btn setTitle:@"一维码" forState:UIControlStateNormal];
-//    }
-    
+}
+- (void)initUI{
     _backBtn = [UIButton buttonWithType:UIButtonTypeCustom];
     _backBtn.frame = CGRectMake(15, 44, 44, 44);
     [_backBtn setImage:[UIImage imageNamed:@"scan_back"] forState:UIControlStateNormal];
     
     [_backBtn addTarget:self action:@selector(close) forControlEvents:UIControlEventTouchUpInside];
     [self.view addSubview:_backBtn];
-    
     [self.view addSubview:[self getPhotosButton]];
-    [self.view addSubview:[self getTipsLabel]];
 }
 #pragma mark - action
 //关闭扫描页面
@@ -148,39 +98,64 @@
 }
 //去相册
 - (void)photosAction{
-    UIImagePickerController *imagePicker = [[UIImagePickerController alloc] init];
-    imagePicker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
-    imagePicker.delegate = self;
-    [self presentViewController:imagePicker animated:YES completion:nil];
-}
-- (void)clicked:(UIButton *)btn{
-    if (_session.running) {
-        [_session stopRunning];
+    
+    AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
+    if (device) {
+        // 判断授权状态
+        PHAuthorizationStatus status = [PHPhotoLibrary authorizationStatus];
+        if (status == PHAuthorizationStatusNotDetermined) { // 用户还没有做出选择
+            // 弹框请求用户授权
+            [PHPhotoLibrary requestAuthorization:^(PHAuthorizationStatus status) {
+                if (status == PHAuthorizationStatusAuthorized) { // 用户第一次同意了访问相册权限
+                    dispatch_sync(dispatch_get_main_queue(), ^{
+                        [self enterPhotos];
+                    });
+                } else { // 用户第一次拒绝了访问相机权限
+                }
+            }];
+        } else if (status == PHAuthorizationStatusAuthorized) { // 用户允许当前应用访问相册
+            [self enterPhotos];
+        } else if (status == PHAuthorizationStatusDenied) { // 用户拒绝当前应用访问相册
+            NSDictionary *infoDict = [[NSBundle mainBundle] infoDictionary];
+            NSString *app_Name = [infoDict objectForKey:@"CFBundleDisplayName"];
+            if (app_Name == nil) {
+                app_Name = [infoDict objectForKey:@"CFBundleName"];
+            }
+            
+            NSString *messageString = [NSString stringWithFormat:@"[前往：设置 - 隐私 - 照片 - %@] 允许应用访问", app_Name];
+            UIAlertController *alertC = [UIAlertController alertControllerWithTitle:@"温馨提示" message:messageString preferredStyle:(UIAlertControllerStyleAlert)];
+            UIAlertAction *alertA = [UIAlertAction actionWithTitle:@"确定" style:(UIAlertActionStyleDefault) handler:^(UIAlertAction * _Nonnull action) {
+                
+            }];
+            
+            [alertC addAction:alertA];
+            [self presentViewController:alertC animated:YES completion:nil];
+        } else if (status == PHAuthorizationStatusRestricted) {
+            UIAlertController *alertC = [UIAlertController alertControllerWithTitle:@"温馨提示" message:@"由于系统原因, 无法访问相册" preferredStyle:(UIAlertControllerStyleAlert)];
+            UIAlertAction *alertA = [UIAlertAction actionWithTitle:@"确定" style:(UIAlertActionStyleDefault) handler:^(UIAlertAction * _Nonnull action) {
+                
+            }];
+            
+            [alertC addAction:alertA];
+            [self presentViewController:alertC animated:YES completion:nil];
+        }
     }
-    [_layerArr enumerateObjectsUsingBlock:^(ScanBarInfo * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
-        [obj.codeView removeFromSuperview];
-    }];
-    [_layerArr removeAllObjects];
-    if (!self.qrCode) {
-        [btn setTitle:@"二维码" forState:UIControlStateNormal];
-        _metadataOutput.metadataObjectTypes = @[AVMetadataObjectTypeQRCode,AVMetadataObjectTypeEAN13Code,  AVMetadataObjectTypeEAN8Code, AVMetadataObjectTypeCode128Code];
-    }else{
-        [btn setTitle:@"一维码" forState:UIControlStateNormal];
-        _metadataOutput.metadataObjectTypes = @[AVMetadataObjectTypeQRCode,AVMetadataObjectTypeEAN13Code,  AVMetadataObjectTypeEAN8Code, AVMetadataObjectTypeCode128Code];
-    }
-    self.qrCode = !self.qrCode;
-    if (!_session.running) {
-        [_session startRunning];
-        [self addTimer];
-    }
-    _backBtn.hidden = NO;
 }
 #pragma mark - AVCaptureMetadataOutputObjectsDelegate
 - (void)captureOutput:(AVCaptureOutput *)captureOutput didOutputMetadataObjects:(NSArray *)metadataObjects fromConnection:(AVCaptureConnection *)connection {
     NSLog(@"metadataObjects - - %@", metadataObjects);
     if (metadataObjects != nil && metadataObjects.count > 0) {
         [self removeTimer];
-        UIView *maskView = [self getMaskView];
+        
+        if (@available(iOS 10.0, *)) {
+            UIImpactFeedbackGenerator*impactLight = [[UIImpactFeedbackGenerator alloc]initWithStyle:UIImpactFeedbackStyleLight];
+            [impactLight impactOccurred];
+        }else{
+//            AudioServicesPlaySystemSound(1519);//私有api
+//            AudioServicesPlaySystemSound(kSystemSoundID_Vibrate);//震动太大
+        }
+        
+        UIView *maskView = [self getMaskViewWithTips:metadataObjects.count > 1];
         maskView.alpha = 0;
         [self.view addSubview:maskView];
         [UIView animateWithDuration:0.6 animations:^{
@@ -250,6 +225,120 @@
 }
 
 #pragma mark - private
+- (void)scanSession{
+    // 1、获取摄像设备
+    AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
+    
+    // 2、创建摄像设备输入流
+    AVCaptureDeviceInput *deviceInput = [AVCaptureDeviceInput deviceInputWithDevice:device error:nil];
+    
+    // 3、创建元数据输出流
+    _metadataOutput = [[AVCaptureMetadataOutput alloc] init];
+    [_metadataOutput setMetadataObjectsDelegate:self queue:dispatch_get_main_queue()];
+    
+    // 设置扫描范围（每一个取值0～1，以屏幕右上角为坐标原点）
+    // 注：微信二维码的扫描范围是整个屏幕，这里并没有做处理（可不用设置）;
+    // 如需限制扫描框范围，打开下一句注释代码并进行相应调整
+    //    metadataOutput.rectOfInterest = CGRectMake(0.05, 0.2, 0.7, 0.6);
+        
+    // 4、创建会话对象
+    _session = [[AVCaptureSession alloc] init];
+    // 并设置会话采集率
+    _session.sessionPreset = AVCaptureSessionPreset1920x1080;
+    
+    // 5、添加元数据输出流到会话对象
+    [_session addOutput:_metadataOutput];
+
+   // 创建摄像数据输出流并将其添加到会话对象上,  --> 用于识别光线强弱
+    self.videoDataOutput = [[AVCaptureVideoDataOutput alloc] init];
+    [_videoDataOutput setSampleBufferDelegate:self queue:dispatch_get_main_queue()];
+    [_session addOutput:_videoDataOutput];
+
+    // 6、添加摄像设备输入流到会话对象
+    [_session addInput:deviceInput];
+
+ // 7、设置数据输出类型(如下设置为条形码和二维码兼容)，需要将数据输出添加到会话后，才能指定元数据类型，否则会报错
+    if (self.qrCode) {
+        _metadataOutput.metadataObjectTypes = @[AVMetadataObjectTypeQRCode,AVMetadataObjectTypeEAN13Code,  AVMetadataObjectTypeEAN8Code, AVMetadataObjectTypeCode128Code];
+    }else{
+        _metadataOutput.metadataObjectTypes = @[AVMetadataObjectTypeQRCode,AVMetadataObjectTypeEAN13Code,  AVMetadataObjectTypeEAN8Code, AVMetadataObjectTypeCode128Code];
+    }
+    
+    // 8、实例化预览图层, 用于显示会话对象
+    _videoPreviewLayer = [AVCaptureVideoPreviewLayer layerWithSession:_session];
+    // 保持纵横比；填充层边界
+    _videoPreviewLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
+    _videoPreviewLayer.frame = self.view.bounds;
+    [self.view.layer insertSublayer:_videoPreviewLayer atIndex:0];
+    
+    // 9、启动会话
+    [_session startRunning];
+    
+    [self.view addSubview:[self getTipsLabel]];
+}
+- (void)startScanQRCodeViewControllerWithResult:(void (^)(NSString * _Nonnull result))block {
+    // 1、 获取摄像设备
+    AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
+    if (device) {
+        // 判断授权状态
+        AVAuthorizationStatus authStatus = [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo];
+        if (authStatus == AVAuthorizationStatusRestricted) {
+            UIAlertController *alertC = [UIAlertController alertControllerWithTitle:@"温馨提示" message:@"由于系统原因, 无法访问相机" preferredStyle:(UIAlertControllerStyleAlert)];
+            UIAlertAction *alertA = [UIAlertAction actionWithTitle:@"确定" style:(UIAlertActionStyleDefault) handler:^(UIAlertAction * _Nonnull action) {
+                
+            }];
+            
+            [alertC addAction:alertA];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [self presentViewController:alertC animated:YES completion:nil];
+            });
+        } else if (authStatus == AVAuthorizationStatusDenied) { // 用户拒绝当前应用访问相机
+            NSDictionary *infoDict = [[NSBundle mainBundle] infoDictionary];
+            NSString *app_Name = [infoDict objectForKey:@"CFBundleDisplayName"];
+            if (app_Name == nil) {
+                app_Name = [infoDict objectForKey:@"CFBundleName"];
+            }
+            
+            NSString *messageString = [NSString stringWithFormat:@"[前往：设置 - 隐私 - 相机 - %@] 允许应用访问", app_Name];
+            UIAlertController *alertC = [UIAlertController alertControllerWithTitle:@"温馨提示" message:messageString preferredStyle:(UIAlertControllerStyleAlert)];
+            UIAlertAction *alertA = [UIAlertAction actionWithTitle:@"确定" style:(UIAlertActionStyleDefault) handler:^(UIAlertAction * _Nonnull action) {
+                
+            }];
+            
+            [alertC addAction:alertA];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [self presentViewController:alertC animated:YES completion:nil];
+            });
+        } else if (authStatus == AVAuthorizationStatusAuthorized) { // 用户允许当前应用访问相机
+           //允许访问相机
+           //do you work
+            block(@"");
+        } else if (authStatus == AVAuthorizationStatusNotDetermined) { // 用户还没有做出选择
+            // 弹框请求用户授权
+            [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo completionHandler:^(BOOL granted) {
+                if (granted) {
+                    //这里是在block里面操作UI，因此需要回到主线程里面去才能操作UI
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                       //回到主线程里面就不会出现延时几秒之后才执行UI操作
+                       //do you work
+                       block(@"");
+                    });
+                }else {
+//                    拒绝
+                }
+            }];
+        }
+    } else {
+//        未检测到您的摄像头, 请在真机上测试
+        
+    }
+}
+- (void)enterPhotos{
+    UIImagePickerController *imagePicker = [[UIImagePickerController alloc] init];
+    imagePicker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+    imagePicker.delegate = self;
+    [self presentViewController:imagePicker animated:YES completion:nil];
+}
 - (void)processWithResult:(NSString *)resultStr{
     if (self.resultBlock) {
         self.resultBlock(resultStr);
@@ -279,16 +368,27 @@
     tipsLabel.layer.borderWidth = 3;
     return tipsLabel;
 }
-- (CABasicAnimation *)getAnimation{
-    CABasicAnimation *animation = [CABasicAnimation animationWithKeyPath:@"transform.scale"];
-    animation.duration = 0.6;
-    animation.repeatCount = HUGE_VALF;
-    animation.autoreverses = YES;
-    //removedOnCompletion为NO保证app切换到后台动画再切回来时动画依然执行
-    animation.removedOnCompletion = NO;
-    animation.fromValue = [NSNumber numberWithFloat:1.0]; // 开始时的倍率
-    animation.toValue = [NSNumber numberWithFloat:0.8]; // 结束时的倍率
-    return animation;
+- (CAKeyframeAnimation *)getAnimation{
+//    CABasicAnimation *animation = [CABasicAnimation animationWithKeyPath:@"transform.scale"];
+//    animation.duration = 0.6;
+//    animation.repeatCount = HUGE_VALF;
+//    animation.autoreverses = YES;
+//    //removedOnCompletion为NO保证app切换到后台动画再切回来时动画依然执行
+//    animation.removedOnCompletion = NO;
+//    animation.fromValue = [NSNumber numberWithFloat:1.0]; // 开始时的倍率
+//    animation.byValue = [NSNumber numberWithFloat:0.4]; // 结束时的倍率
+//    animation.toValue = [NSNumber numberWithFloat:0.8]; // 结束时的倍率
+//    return animation;
+    CAKeyframeAnimation * ani = [CAKeyframeAnimation animationWithKeyPath:@"transform.scale"];
+    ani.duration = 2.8;
+    ani.removedOnCompletion = NO;
+    ani.repeatCount = HUGE_VALF;
+    ani.fillMode = kCAFillModeForwards;
+    ani.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+    NSValue * value1 = [NSNumber numberWithFloat:1.0];
+    NSValue *value2=[NSNumber numberWithFloat:0.8];
+    ani.values = @[value1, value2, value1, value2, value1, value1, value1, value1];
+    return ani;
 }
 - (UIButton *)getCodeButtonWith:(CGRect)bounds withIcon:(BOOL)icon{
     UIButton *btn = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -313,16 +413,26 @@
     btn.layer.borderWidth = 3;
     return btn;
 }
-- (UIView *)getMaskView{
+- (UIView *)getMaskViewWithTips:(BOOL) showTips{
     UIView *maskView = [[UIView alloc] initWithFrame:self.view.bounds];
     maskView.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0.6];
+
+    if (showTips) {
+        UIButton *cancel = [UIButton buttonWithType:UIButtonTypeCustom];
+        cancel.frame = CGRectMake(15, 44, 50, 44);
+        [cancel setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        [cancel setTitle:@"取消" forState:UIControlStateNormal];
+        [cancel addTarget:self action:@selector(cancel) forControlEvents:UIControlEventTouchUpInside];
+        [maskView addSubview:cancel];
+        
+        UILabel *tipsLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, self.view.bounds.size.height-64-50, self.view.bounds.size.width-40, 50)];
+        tipsLabel.text = @"轻触小蓝点，选中识别二维码";
+        tipsLabel.font  = [UIFont boldSystemFontOfSize:14];
+        tipsLabel.textAlignment = NSTextAlignmentCenter;
+        tipsLabel.textColor = [UIColor colorWithRed:1 green:1 blue:1 alpha:0.6];
+        [maskView addSubview:tipsLabel];
+    }
     
-    UIButton *cancel = [UIButton buttonWithType:UIButtonTypeCustom];
-    cancel.frame = CGRectMake(15, 44, 50, 44);
-    [cancel setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    [cancel setTitle:@"取消" forState:UIControlStateNormal];
-    [cancel addTarget:self action:@selector(cancel) forControlEvents:UIControlEventTouchUpInside];
-    [maskView addSubview:cancel];
     return maskView;
 }
 #pragma mark - - - 添加定时器
@@ -337,6 +447,7 @@
     scanninglineX = scanBorderX;
     scanninglineY = scanBorderY;
     _scanningline.frame = CGRectMake(scanninglineX, scanninglineY, scanninglineW, scanninglineH);
+    _scanningline.hidden = YES;
     self.timer = [NSTimer timerWithTimeInterval:self.animationTimeInterval target:self selector:@selector(beginRefreshUI) userInfo:nil repeats:YES];
     [[NSRunLoop mainRunLoop] addTimer:_timer forMode:NSRunLoopCommonModes];
 }
@@ -353,6 +464,7 @@
     if (!_session.isRunning) {
         [self removeTimer];
     }
+    _scanningline.hidden = NO;
     __block CGRect frame = _scanningline.frame;
     static BOOL flag = YES;
     
