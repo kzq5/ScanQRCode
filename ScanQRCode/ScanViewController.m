@@ -262,8 +262,10 @@
  // 7、设置数据输出类型(如下设置为条形码和二维码兼容)，需要将数据输出添加到会话后，才能指定元数据类型，否则会报错
     if (self.qrCode) {
         _metadataOutput.metadataObjectTypes = @[AVMetadataObjectTypeQRCode,AVMetadataObjectTypeEAN13Code,  AVMetadataObjectTypeEAN8Code, AVMetadataObjectTypeCode128Code];
+        //此处设置的扫条码和二维码，此时二维码扫码是全屏的，但是条码扫码是中间区域，所以回画一个中间区域指引用户对准
     }else{
-        _metadataOutput.metadataObjectTypes = @[AVMetadataObjectTypeQRCode,AVMetadataObjectTypeEAN13Code,  AVMetadataObjectTypeEAN8Code, AVMetadataObjectTypeCode128Code];
+        _metadataOutput.metadataObjectTypes = @[AVMetadataObjectTypeEAN13Code,  AVMetadataObjectTypeEAN8Code, AVMetadataObjectTypeCode128Code];
+        //只设置条码是可以全屏识别的
     }
     
     // 8、实例化预览图层, 用于显示会话对象
