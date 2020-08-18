@@ -8,6 +8,7 @@
 
 #import "ViewController.h"
 #import "ScanViewController.h"
+#import "CaptureImageViewController.h"
 @interface ViewController ()
 {
     UILabel *_tipsLabel;
@@ -37,6 +38,13 @@
     tipsLabel.textColor = [UIColor colorWithRed:54/255.0 green:85/255.0 blue:230/255.0 alpha:1];
     [self.view addSubview:tipsLabel];
     _tipsLabel = tipsLabel;
+    
+    UIButton *btn1 = [UIButton buttonWithType:UIButtonTypeCustom];
+    btn1.frame = CGRectMake(0, 100, 100, 40);
+    btn1.backgroundColor = [UIColor redColor];
+    [btn1 setTitle:@"获取图像" forState:UIControlStateNormal];
+    [btn1 addTarget:self action:@selector(captureimage) forControlEvents:UIControlEventTouchUpInside];
+    [self.view addSubview:btn1];
 }
 - (void)scanQRCode{
     ScanViewController *scanVC = [ScanViewController new];
@@ -47,5 +55,9 @@
     scanVC.modalPresentationStyle = UIModalPresentationFullScreen;
     [self presentViewController:scanVC animated:YES completion:nil];
 }
-
+- (void)captureimage{
+    CaptureImageViewController *scanVC = [CaptureImageViewController new];
+    scanVC.modalPresentationStyle = UIModalPresentationFullScreen;
+    [self presentViewController:scanVC animated:YES completion:nil];
+}
 @end
